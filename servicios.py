@@ -6,6 +6,9 @@ from multas import calcular_multa
 from repositorios import RepositorioEjemplares, RepositorioPrestamos
 
 
+ERROR_EJEMPLAR_INEXISTENTE = "El ejemplar no existe"
+
+
 def validar_identificador(identificador: int) -> None:
     if type(identificador) is not int or identificador <= 0:
         raise ValueError("El identificador debe ser un entero positivo")
@@ -17,13 +20,17 @@ class ServicioReservas:
 
     def reservar(self, ejemplar_id: int, usuario_id: int) -> Ejemplar:
         validar_identificador(usuario_id)
+
         ejemplar = self._ejemplares.obtener(ejemplar_id)
         if ejemplar is None:
-            raise ValueError("El ejemplar no existe")
+            raise ValueError(ERROR_EJEMPLAR_INEXISTENTE)
+
         if ejemplar.estado != EstadoEjemplar.DISPONIBLE:
             raise ValueError("El ejemplar no está disponible")
-        reservado = replace(
-            ejemplar,
+
+        reservado = Ejemplar(
+            id=ejemplar.id,
+            libro_id=ejemplar.libro_id,
             estado=EstadoEjemplar.RESERVADO,
             reservado_por=usuario_id,
         )
@@ -50,18 +57,23 @@ class ServicioCirculacion:
     ) -> Prestamo:
         validar_identificador(prestamo_id)
         validar_identificador(usuario_id)
+
         if type(plazo_dias) is not int or plazo_dias <= 0:
             raise ValueError("El plazo debe ser un entero positivo")
+
         ejemplar = self._ejemplares.obtener(ejemplar_id)
         if ejemplar is None:
-            raise ValueError("El ejemplar no existe")
+            raise ValueError(ERROR_EJEMPLAR_INEXISTENTE)
+
         if ejemplar.estado == EstadoEjemplar.PRESTADO:
             raise ValueError("El ejemplar ya está prestado")
+
         if (
             ejemplar.estado == EstadoEjemplar.RESERVADO
             and ejemplar.reservado_por != usuario_id
         ):
             raise ValueError("La reserva pertenece a otro usuario")
+
         prestamo = Prestamo(
             id=prestamo_id,
             ejemplar_id=ejemplar_id,
@@ -70,27 +82,48 @@ class ServicioCirculacion:
             fecha_vencimiento=fecha + timedelta(days=plazo_dias),
         )
         self._prestamos.agregar(prestamo)
-        self._ejemplares.actualizar(replace(
-            ejemplar, estado=EstadoEjemplar.PRESTADO, reservado_por=None
-        ))
+
+        self._ejemplares.actualizar(
+            replace(
+                ejemplar,
+                estado=EstadoEjemplar.PRESTADO,
+                reservado_por=None,
+            )
+        )
         return prestamo
 
     def devolver(self, prestamo_id: int, fecha: date) -> Prestamo:
         prestamo = self._prestamos.obtener(prestamo_id)
         if prestamo is None:
             raise ValueError("El préstamo no existe")
+
         if prestamo.fecha_devolucion is not None:
             raise ValueError("El préstamo ya fue devuelto")
+
         if fecha < prestamo.fecha_prestamo:
             raise ValueError("La devolución no puede ser anterior al préstamo")
+
         ejemplar = self._ejemplares.obtener(prestamo.ejemplar_id)
         if ejemplar is None:
-            raise ValueError("El ejemplar no existe")
-        devuelto = replace(prestamo, fecha_devolucion=fecha)
+            raise ValueError(ERROR_EJEMPLAR_INEXISTENTE)
+
+        devuelto = Prestamo(
+            id=prestamo.id,
+            ejemplar_id=prestamo.ejemplar_id,
+            usuario_id=prestamo.usuario_id,
+            fecha_prestamo=prestamo.fecha_prestamo,
+            fecha_vencimiento=prestamo.fecha_vencimiento,
+            fecha_devolucion=fecha,
+        )
         self._prestamos.actualizar(devuelto)
-        self._ejemplares.actualizar(replace(
-            ejemplar, estado=EstadoEjemplar.DISPONIBLE, reservado_por=None
-        ))
+
+        self._ejemplares.actualizar(
+            replace(
+                ejemplar,
+                estado=EstadoEjemplar.DISPONIBLE,
+                reservado_por=None,
+            )
+        )
         return devuelto
 
 
@@ -102,8 +135,13 @@ class ServicioMultas:
         prestamo = self._prestamos.obtener(prestamo_id)
         if prestamo is None:
             raise ValueError("El préstamo no existe")
+
         if prestamo.fecha_devolucion is None:
-            raise ValueError("El préstamo debe estar devuelto para calcular la multa final")
+            raise ValueError(
+                "El préstamo debe estar devuelto para calcular la multa final"
+            )
+
         return calcular_multa(
-            prestamo.fecha_vencimiento, prestamo.fecha_devolucion
+            prestamo.fecha_vencimiento,
+            prestamo.fecha_devolucion,
         )
